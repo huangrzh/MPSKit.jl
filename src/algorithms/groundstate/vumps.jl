@@ -56,7 +56,7 @@ function find_groundstate(state::InfiniteMPS, H,alg::VUMPS,envs=environments(sta
         end
 
         E1 = real(expectation_value(state, envs))
-        E1 = mean(E1)
+        E1 = sum(E1)/length(state)
         @printf("%4d    %.2e    %.12e     %.2e    %.2e\n", iter, galerkin, E1,  m_time, 
             (E1-E0)/abs(E0));
         E0 = E1
