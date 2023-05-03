@@ -153,8 +153,8 @@ end
 
 function qising_ham(; h::Float64=1.0, V=ℂ)
     X, _, Z = PauliMatrix()
-    @tensor XX[-1 -2; -3 -4] := X[-1; -3] * X[-2; -4]
-    Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h * Z)
+    @tensor ZZ[-1 -2; -3 -4] := Z[-1; -3] * Z[-2; -4]
+    Ham = MPOHamiltonian(-ZZ) + MPOHamiltonian(-h * X)
     return Ham
 end
 
@@ -325,7 +325,7 @@ function KW_mpo()
     gplus = TensorMap(ones, ComplexF64, ℂ^2, ℂ^1)
     gad = copy(gplus');
     @tensor g[-1,-2,-3,-4] := vt[-2,2,-3]*u[-1,2,-4]  
-    @tensor g2[-1,-2,-3,-4,-10,-11] := gplus[1,-10]*g[-1,-2,1,3]*g[2,3,-3,-4]*gad[2,-11]
+    @tensor g2[-1,-2,-3,-4,-10,-11] := gplus[1,-10]*g[-1,-2,1,3]*g[2,3,-3,-4]*gad[-11,2]
     g2mat = convert(Array, g2)
     g2mat = reshape(g2mat, (2,2,2,2))
 
