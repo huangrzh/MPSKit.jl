@@ -353,7 +353,11 @@ for i = 1:N
     @tensor pq[-1,-2] := qs[i][-1,1,2]*ps[i+1][1,2,-2] 
     @tensor As[i][-1,-2;-3] := As[i][-1,-2,3]*pq[3,-3]
 end
-st = InfiniteMPS(As)
+As1 = similar(st.AL)
+for i = 1:N
+    As1[i] = As[i]
+end
+st = InfiniteMPS(As1)
 
 return st   
 end
