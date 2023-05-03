@@ -65,6 +65,7 @@ module MPSKit
     include("utility/utility.jl") #random utility functions
     include("utility/plotting.jl")
     include("utility/linearcombination.jl")
+    include("utility/phy_lib.jl")
 
     #maybe we should introduce an abstract state type
     include("states/abstractmps.jl")
