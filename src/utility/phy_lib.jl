@@ -339,7 +339,7 @@ gKW = KW_mpo()
 As = similar(st.AL)
 N = length(As)
 for i = 1:N
-    @tensor As[i][-2,-10,-1;-3,-11] := gKW[-1,-2,1,-3]*x[-10,1,-11];
+    @tensor As[i][-2,-10,-1;-3,-11] := gKW[-1,-2,1,-3]*As[i][-10,1,-11];
 end
 
 #merge bonds
