@@ -65,7 +65,7 @@ module MPSKit
     include("utility/utility.jl") #random utility functions
     include("utility/plotting.jl")
     include("utility/linearcombination.jl")
-    include("utility/phy_lib.jl")
+    
 
     #maybe we should introduce an abstract state type
     include("states/abstractmps.jl")
@@ -88,6 +88,7 @@ module MPSKit
     include("transfermatrix/transfermatrix.jl")
     include("transfermatrix/transfer.jl")
 
+    include("utility/phy_lib.jl")
 
     abstract type Cache end #cache "manages" environments
 
