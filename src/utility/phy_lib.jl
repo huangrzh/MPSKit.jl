@@ -336,19 +336,22 @@ end
 
 function KW_act_MPS(st::InfiniteMPS)
 gKW = KW_mpo()
-As = similar(st.AL)
 N = length(As)
+
+As = PeriodicArray{Any,1}(nothing, N)
+ps = similar(As)
+qs = similar(As)
 for i = 1:N
-    @tensor As[i][-2,-10,-1;-3,-11] := gKW[-1,-2,1,-3]*As[i][-10,1,-11];
+    @tensor T[-2,-10,-1;-3,-11] := gKW[-1,-2,1,-3]*st.AL[i][-10,1,-11];
+    ps[i],r = leftorth(T, (1,2,), (3,4,5))
+    T,qs[i] = rightorth(r, (1,2,), (3,4))
+    As[i] = permute(T, (1,2), (3,))
 end
 
 #merge bonds
 for i = 1:N
-    p,r = leftorth(As[i], (1,2,), (3,4,5))
-    T,q = rightorth(r, (1,2,), (3,4))
-    As[i] = permute(T, (1,2), (3,))
-    @tensor As[i-1][-1,-2;-3] := As[i-1][-1,-2;3]*p[3,-3]
-    @tensor As[i+1][-1,-2;-3] := q[-1,1]*As[i+1][1,-2,-3]
+    @tensor pq[-1,-2] := qs[i][-1,1,2]*ps[i+1][1,2,-2] 
+    @tensor As[i][-1,-2;-3] := As[i][-1,-2,3]*pq[3,-3]
 end
 st = InfiniteMPS(As)
 
