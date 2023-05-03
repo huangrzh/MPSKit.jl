@@ -336,7 +336,7 @@ end
 
 function KW_act_MPS(st::InfiniteMPS)
 gKW = KW_mpo()
-N = length(As)
+N = length(st.AL)
 
 As = PeriodicArray{Any,1}(nothing, N)
 ps = similar(As)
