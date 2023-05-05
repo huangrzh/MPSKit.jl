@@ -1,7 +1,5 @@
 using Statistics, Parameters, Printf, LinearAlgebra
 
-PbcTensors = PeriodicArray{TensorMap}
-
 @with_kw struct TEBD
     tol = 1e-12;
     maxiter = 100;
@@ -69,7 +67,7 @@ function sdiag_sqrt(S::AbstractTensorMap)
 end
 
 
-function simple_tebd(G::TensorMap, As::PbcTensors, Ls::PbcTensors, Ham::TensorMap, opts::TEBD)
+function simple_tebd(G::TensorMap, As::AbstractArray, Ls::AbstractArray, Ham::TensorMap, opts::TEBD)
     nsite = length(As)
     Err1 = 0.0
     Ls0 = Ls
