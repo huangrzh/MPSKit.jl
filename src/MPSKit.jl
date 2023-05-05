@@ -139,4 +139,6 @@ module MPSKit
     include("algorithms/ED.jl")
 
     include("algorithms/unionalg.jl")
+
+    include("algorithms/mps_tebd.jl")
 end

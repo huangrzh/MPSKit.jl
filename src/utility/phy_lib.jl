@@ -334,8 +334,34 @@ function KW_mpo()
     return gKW
 end
 
-function KW_act_MPS(st::InfiniteMPS)
-gKW = KW_mpo()
+function KW_mpo2()
+    CZ = zeros(2,2,2,2) # ip,jp,i,j
+    for i = 1:2
+        for j=1:2
+            if i==2 && j==2
+                CZ[i,j,i,j] = -1
+            else
+                CZ[i,j,i,j] = 1
+            end
+        end
+    end
+    CZ = TensorMap(CZ, ℂ^2*ℂ^2, ℂ^2*ℂ^2)
+    u,s,vt,ε = tsvd(CZ, (1,3,),(2,4,), trunc=truncbelow(1e-12))
+    u = u*s
+    gplus = TensorMap(ones, ComplexF64, ℂ^2, ℂ^1)
+    gad = copy(gplus');
+    @tensor g[-1,-2,-3,-4] := vt[-2,2,-3]*u[-1,2,-4]  
+    @tensor g2[-1,-2,-3,-4,-10,-11] := gplus[1,-10]*g[-1,-2,1,3]*g[2,3,-3,-4]*gad[-11,2]
+    g2mat = convert(Array, g2)
+    g2mat = reshape(g2mat, (2,2,2,2))
+
+    gKW = TensorMap(g2mat, ℂ^2*ℂ^2, ℂ^2*ℂ^2)
+
+    return gKW
+end
+
+function KW_act_MPS(st::InfiniteMPS; gKW=KW_mpo())
+#gKW = KW_mpo()
 N = length(st.AL)
 
 As = PeriodicArray{Any,1}(nothing, N)
