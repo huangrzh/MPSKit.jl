@@ -22,6 +22,54 @@ function PauliMatrix()
     return X, Y, Z
 end
 
+function _pauliterm(spin, i, j)
+    1 <= i <= 2 * spin + 1 || return 0.0
+    1 <= j <= 2 * spin + 1 || return 0.0
+    return sqrt((spin + 1) * (i + j - 1) - i * j) / 2.0
+end
+
+"""
+    spinmatrices(spin [, eltype])
+
+the spinmatrices according to [Wikipedia](https://en.wikipedia.org/wiki/Spin_(physics)#Higher_spins).
+"""
+function spinmatrices(s::Union{Rational{Int},Int}, elt=ComplexF64)
+    N = Int(2 * s)
+
+    Sx = zeros(elt, N + 1, N + 1)
+    Sy = zeros(elt, N + 1, N + 1)
+    Sz = zeros(elt, N + 1, N + 1)
+
+    for row in 1:(N + 1)
+        for col in 1:(N + 1)
+            term = _pauliterm(s, row, col)
+
+            if (row + 1 == col)
+                Sx[row, col] += term
+                Sy[row, col] -= 1im * term
+            end
+
+            if (row == col + 1)
+                Sx[row, col] += term
+                Sy[row, col] += 1im * term
+            end
+
+            if (row == col)
+                Sz[row, col] += s + 1 - row
+            end
+        end
+    end
+    
+    v=ℂ^(N+1)
+    Sx = TensorMap(Sx, v, v)
+    Sy = TensorMap(Sy, v, v)
+    Sz = TensorMap(Sz, v, v)
+
+    return Sx, Sy, Sz
+end
+
+
+
 # charge: 0,1,...,n-1
 function Zn_Potts_Operator(n::Int)
     F=ComplexF64
@@ -118,19 +166,29 @@ function potts_op_CZ2()
     return Z, XX, Sz
 end
 
-# H = -XX - h
-function cluster_ising_mpo_z2(h::Float64)
-    vp = Rep[ℤ₂](0=>1,1=>1);
-    vi = Rep[ℤ₂](1=>1);
-    Z = TensorMap(zeros,ComplexF64,vp,vp);
-    blocks(Z)[ℤ₂(1)].=-1;
-    blocks(Z)[ℤ₂(0)].=+1;
-    X1 = TensorMap(ones,ComplexF64,vp*vi,vp);
-    X2 = TensorMap(ones,ComplexF64,vp,vi*vp);
-    @tensor XZX[-1 -2 -3;-4 -5 -6] := X1[-1 1;-4]*Z[-2;-5]*X2[-3; 1 -6];
-    @tensor XX[-1 -2;-3 -4] := X1[-1 1;-3]*X2[-2;1 -4];
-    Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX)
-    return Ham, XX, XZX
+function cluster_ising_mpo(h::Float64; hx::Float64=Inf, group="Z2")
+    if group == "Z2"
+        vp = Rep[ℤ₂](0=>1,1=>1);
+        vi = Rep[ℤ₂](1=>1);
+        Z = TensorMap(zeros,ComplexF64,vp,vp);
+        blocks(Z)[ℤ₂(1)].=-1;
+        blocks(Z)[ℤ₂(0)].=+1;
+        X1 = TensorMap(ones,ComplexF64,vp*vi,vp);
+        X2 = TensorMap(ones,ComplexF64,vp,vi*vp);
+        @tensor XZX[-1 -2 -3;-4 -5 -6] := X1[-1 1;-4]*Z[-2;-5]*X2[-3; 1 -6];
+        @tensor XX[-1 -2;-3 -4] := X1[-1 1;-3]*X2[-2;1 -4];
+        Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX)
+        return Ham, XX, XZX
+    else
+        X,_,Z = PauliMatrix()
+        @tensor XZX[-1 -2 -3;-4 -5 -6] := X[-1 1;-4]*Z[-2;-5]*X[-3; 1 -6];
+        @tensor XX[-1 -2;-3 -4] := X[-1 1;-3]*X[-2;1 -4];
+        Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX)
+        if isfinite(hx)
+            Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX) + MPOHamiltonian(hx*X)
+        end
+        return Ham, XX, XZX
+    end
 end
 
 
