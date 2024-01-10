@@ -1,39 +1,49 @@
-"
-    Truncate a given state using svd
-"
-@with_kw struct SvdCut <: Algorithm
-    trscheme = notrunc()
+"""
+    struct SvdCut <: Algorithm end
+
+An algorithm that uses truncated SVD to change the bond dimension of a ψ.
+
+# Fields
+- `trscheme::TruncationScheme = notrunc()` : The truncation scheme to use.
+"""
+@kwdef struct SvdCut <: Algorithm
+    trscheme::TruncationScheme = notrunc()
 end
 
-changebonds(state::AbstractFiniteMPS,alg::SvdCut) = changebonds!(copy(state),alg);
-function changebonds!(state::AbstractFiniteMPS,alg::SvdCut)
-    newstate = copy(state);
+changebonds(ψ::AbstractFiniteMPS, alg::SvdCut) = changebonds!(copy(ψ), alg)
+function changebonds!(ψ::AbstractFiniteMPS, alg::SvdCut)
+    for i in (length(ψ) - 1):-1:1
+        U, S, V, = tsvd(ψ.CR[i]; trunc=alg.trscheme, alg=TensorKit.SVD())
+        AL′ = ψ.AL[i] * U
+        ψ.AC[i] = (AL′, complex(S))
+        AR′ = _transpose_front(V * _transpose_tail(ψ.AR[i + 1]))
+        ψ.AC[i + 1] = (complex(S), AR′)
+    end
+    return normalize!(ψ)
+end
 
-    for i in length(state)-1:-1:1
-        (U,S,V) = tsvd(state.CR[i],trunc=alg.trscheme,alg=TensorKit.SVD());
+function changebonds(ψ::DenseMPO, alg::SvdCut)
+    return convert(DenseMPO, changebonds(convert(InfiniteMPS, ψ), alg))
+end
+function changebonds(ψ::MPOMultiline, alg::SvdCut)
+    return convert(MPOMultiline, changebonds(convert(MPSMultiline, ψ), alg))
+end
+function changebonds(ψ::MPSMultiline, alg::SvdCut)
+    return Multiline(map(x -> changebonds(x, alg), ψ.data))
+end
+function changebonds(ψ::InfiniteMPS, alg::SvdCut)
+    copied = complex.(ψ.AL)
+    ncr = ψ.CR[1]
 
-        state.AC[i] = (state.AL[i]*U,complex(S));
-        state.AC[i+1] = (complex(S),_transpose_front(V*_transpose_tail(state.AR[i+1])));
+    for i in 1:length(ψ)
+        U, ncr, = tsvd(ψ.CR[i]; trunc=alg.trscheme, alg=TensorKit.SVD())
+        copied[i] = copied[i] * U
+        copied[i + 1] = _transpose_front(U' * _transpose_tail(copied[i + 1]))
     end
 
-    return state
+    return normalize!(InfiniteMPS(copied, complex(ncr)))
 end
 
-changebonds(state::DenseMPO,alg::SvdCut) = convert(DenseMPO,changebonds(convert(InfiniteMPS,state),alg));
-changebonds(state::MPOMultiline,alg::SvdCut) = convert(MPOMultiline,changebonds(convert(MPSMultiline,state),alg))
-changebonds(state::MPSMultiline,alg::SvdCut) = Multiline(map(x->changebonds(x,alg),state.data))
-function changebonds(state::InfiniteMPS,alg::SvdCut)
-    copied = complex.(state.AL);
-    ncr = state.CR[1];
-
-    for i in 1:length(state)
-
-        (U,ncr,V) = tsvd(state.CR[i],trunc=alg.trscheme,alg=TensorKit.SVD());
-        copied[i] = copied[i]*U
-        copied[i+1] = _transpose_front(U'*_transpose_tail(copied[i+1]))
-    end
-
-    InfiniteMPS(copied,complex(ncr));
+function changebonds(ψ, H, alg::SvdCut, envs=environments(ψ, H))
+    return (changebonds(ψ, alg), envs)
 end
-
-changebonds(state,H,alg::SvdCut,envs=environments(state,H)) = (changebonds(state,alg),envs)

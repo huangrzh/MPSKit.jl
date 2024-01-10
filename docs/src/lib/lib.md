@@ -4,7 +4,7 @@
 ```@docs
 FiniteMPS
 InfiniteMPS
-MPSComoving
+WindowMPS
 MPSMultiline
 ```
 
@@ -21,14 +21,17 @@ MPSKit.AbstractInfEnv
 MPSKit.PerMPOInfEnv
 MPSKit.MPOHamInfEnv
 MPSKit.FinEnv
-MPSKit.IDmrgEnvs
+MPSKit.IDMRGEnvs
 ```
 
 ## Generic actions
 ```@docs
-c_prime
-ac_prime
-ac2_prime
+∂C
+∂∂C
+∂AC
+∂∂AC
+∂AC2
+∂∂AC2
 
 c_proj
 ac_proj
@@ -50,33 +53,33 @@ approximate
 
 ### [Groundstate algorithms](@id lib_gs_alg)
 ```@docs
-Vumps
-Idmrg1
-Idmrg2
-Dmrg
-Dmrg2
+VUMPS
+IDMRG1
+IDMRG2
+DMRG
+DMRG2
 GradientGrassmann
 ```
 
 ### [Time evolution algorithms](@id lib_time_alg)
 ```@docs
-Tdvp
-Tdvp2
+TDVP
+TDVP2
 TaylorCluster
 WII
 ```
 
 ### [Leading boundary algorithms](@id lib_bound_alg)
 ```@docs
-Vumps
-PowerMethod
+VUMPS
+GradientGrassmann
 ```
 
 ### [Bond change algorithms](@id lib_bc_alg)
 ```@docs
 OptimalExpand
 RandExpand
-VumpsSvdCut
+VUMPSSvdCut
 SvdCut
 ```
 

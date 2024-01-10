@@ -1,78 +1,94 @@
 function _transpose_front(t::AbstractTensorMap) # make TensorMap{S,N₁+N₂-1,1}
     I1 = TensorKit.codomainind(t)
     I2 = TensorKit.domainind(t)
-    transpose(t, (I1..., reverse(Base.tail(I2))...), (I2[1],))
+    return transpose(t, ((I1..., reverse(Base.tail(I2))...), (I2[1],)))
 end
 function _transpose_tail(t::AbstractTensorMap) # make TensorMap{S,1,N₁+N₂-1}
     I1 = TensorKit.codomainind(t)
     I2 = TensorKit.domainind(t)
-    transpose(t, (I1[1],), (I2..., reverse(Base.tail(I1))...))
+    return transpose(t, ((I1[1],), (I2..., reverse(Base.tail(I1))...)))
 end
-function _transpose_as(t1::AbstractTensorMap, t2::AbstractTensorMap{S,N1,N2}) where {S,N1,N2}
-    I1 = (TensorKit.codomainind(t1)...,reverse(TensorKit.domainind(t1))...);
+function _transpose_as(t1::AbstractTensorMap,
+                       t2::AbstractTensorMap{S,N1,N2}) where {S,N1,N2}
+    I1 = (TensorKit.codomainind(t1)..., reverse(TensorKit.domainind(t1))...)
 
-    A = ntuple(x->I1[x],N1);
-    B = ntuple(x->I1[x+N1],N2);
+    A = ntuple(x -> I1[x], N1)
+    B = ntuple(x -> I1[x + N1], N2)
 
-    transpose(t1, A,B)
+    return transpose(t1, (A, B))
 end
 
 _firstspace(t::AbstractTensorMap) = space(t, 1)
 _lastspace(t::AbstractTensorMap) = space(t, numind(t))
 
 #given a hamiltonian with unit legs on the side, decompose it using svds to form a "localmpo"
-function decompose_localmpo(inpmpo::AbstractTensorMap{PS,N,N},trunc = truncbelow(Defaults.tol)) where {PS,N}
-    N == 2 && return [transpose(inpmpo,(1,2),(3,4))]
+function decompose_localmpo(inpmpo::AbstractTensorMap{PS,N,N},
+                            trunc=truncbelow(Defaults.tol)) where {PS,N}
+    N == 2 && return [inpmpo]
 
-    leftind = (N+1,1,2)
-    rightind = (ntuple(x->x+N+1,N-1)...,reverse(ntuple(x->x+2,N-2))...);
-    (U,S,V) = tsvd(transpose(inpmpo,leftind,rightind),trunc = trunc)
+    leftind = (N + 1, 1, 2)
+    rightind = (ntuple(x -> x + N + 1, N - 1)..., reverse(ntuple(x -> x + 2, N - 2))...)
+    U, S, V = tsvd(transpose(inpmpo, (leftind, rightind)); trunc=trunc)
 
-    A = transpose(U,(2,3),(1,4));
-    B = transpose(S*V,(1,reverse(ntuple(x->x+N,N-2))...),ntuple(x->x+1,N-1))
-    return [A;decompose_localmpo(B)]
+    A = transpose(U * S, ((2, 3), (1, 4)))
+    B = transpose(V,
+                  ((1, reverse(ntuple(x -> x + N, N - 2))...), ntuple(x -> x + 1, N - 1)))
+    return [A; decompose_localmpo(B)]
+end
+
+# given a state with util legs on the side, decompose using svds to form an array of mpstensors
+function decompose_localmps(state::AbstractTensorMap{PS,N,1},
+                            trunc=truncbelow(Defaults.tol)) where {PS,N}
+    N == 2 && return [state]
+
+    leftind = (1, 2)
+    rightind = reverse(ntuple(x -> x + 2, N - 1))
+    U, S, V = tsvd(transpose(state, (leftind, rightind)); trunc=trunc)
+
+    A = U * S
+    B = _transpose_front(V)
+    return [A; decompose_localmps(B)]
 end
 
 function add_util_leg(tensor::AbstractTensorMap{S,N1,N2}) where {S,N1,N2}
-    ou = oneunit(_firstspace(tensor));
+    ou = oneunit(_firstspace(tensor))
 
-    util_front = isomorphism(storagetype(tensor),ou*codomain(tensor),codomain(tensor));
-    util_back = isomorphism(storagetype(tensor),domain(tensor),domain(tensor)*ou);
+    util_front = isomorphism(storagetype(tensor), ou * codomain(tensor), codomain(tensor))
+    util_back = isomorphism(storagetype(tensor), domain(tensor), domain(tensor) * ou)
 
-    return util_front*tensor*util_back
+    return util_front * tensor * util_back
 end
 
 function union_split(a::AbstractArray)
-    T = reduce((a,b)->Union{a,b},typeof.(a))
-    nA = similar(a,T);
-    copy!(nA,a)
+    T = reduce((a, b) -> Union{a,b}, typeof.(a))
+    nA = similar(a, T)
+    return copy!(nA, a)
 end
 union_types(x::Union) = (x.a, union_types(x.b)...)
 union_types(x::Type) = (x,)
 
 function _embedders(spaces)
-    totalspace = reduce(⊕,spaces);
+    totalspace = reduce(⊕, spaces)
 
-    maps = [isometry(totalspace,first(spaces))];
-    restmap = leftnull(first(maps));
+    maps = [isometry(totalspace, first(spaces))]
+    restmap = leftnull(first(maps))
 
     for sp in spaces[2:end]
-        cm = isometry(domain(restmap),sp);
+        cm = isometry(domain(restmap), sp)
 
-        push!(maps,restmap*cm);
-        restmap = restmap*leftnull(cm);
+        push!(maps, restmap * cm)
+        restmap = restmap * leftnull(cm)
     end
 
-    maps
+    return maps
 end
 
 function _can_unambiguously_braid(sp::VectorSpace)
-    s = sectortype(sp);
+    s = sectortype(sp)
 
-    #either the braidingstyle is bosonic
-    BraidingStyle(s) isa Bosonic && return true
+    BraidingStyle(s) isa SymmetricBraiding && return true
 
-    #or there is only one irrep ocurring - the trivial one
+    # if it's not symmetric, then we are only really garantueed that this is possible when only one irrep occurs - the trivial one
     for sect in sectors(sp)
         sect == one(sect) || return false
     end
@@ -80,34 +96,52 @@ function _can_unambiguously_braid(sp::VectorSpace)
 end
 
 #needed this; perhaps move to tensorkit?
-TensorKit.fuse(f::T) where T<: VectorSpace = f
+TensorKit.fuse(f::T) where {T<:VectorSpace} = f
 
-
-function inplace_add!(a::Union{<:AbstractTensorMap,Nothing},b::Union{<:AbstractTensorMap,Nothing})
+function inplace_add!(a::Union{AbstractTensorMap,Nothing},
+                      b::Union{AbstractTensorMap,Nothing})
     isnothing(a) && isnothing(b) && return nothing
     isnothing(a) && return b
     isnothing(b) && return a
-    axpy!(true,a,b)
+    return axpy!(true, a, b)
 end
 
 #=
 map every element in the tensormap to dfun(E)
 allows us to create random tensormaps for any storagetype
 =#
-function fill_data!(a::TensorMap,dfun)
-    E = eltype(a);
-
-    for (k,v) in blocks(a)
-        map!(x->dfun(E),v,v);
+function fill_data!(a::TensorMap, dfun)
+    for (k, v) in blocks(a)
+        map!(x -> dfun(typeof(x)), v, v)
     end
 
-    a
+    return a
 end
-randomize!(a::TensorMap) = fill_data!(a,randn)
+randomize!(a::TensorMap) = fill_data!(a, randn)
 
-
-function safe_xlogx(t::AbstractTensorMap,eps = eps(real(eltype(t))))
-    (U,S,V) = tsvd(t,alg = SVD(), trunc = truncbelow(eps));
-    U*S*log(S)*V
+function safe_xlogx(t::AbstractTensorMap, eps=eps(real(scalartype(t))))
+    (U, S, V) = tsvd(t; alg=SVD(), trunc=truncbelow(eps))
+    return U * S * log(S) * V
 end
 
+"""
+    tensorexpr(name::Symbol, ind_out, [ind_in])
+
+Generates expressions for use within [`@tensor`](@ref TensorOperations.@tensor) environments of the form `name[ind_out...; ind_in]`.
+"""
+tensorexpr(name::Symbol, inds) = Expr(:ref, name, inds...)
+function tensorexpr(name::Symbol, indout, indin)
+    return Expr(:typed_vcat, name, Expr(:row, indout...), Expr(:row, indin...))
+end
+
+# check all elements are equal -> only defined in 1.8+
+@static if !isdefined(Base, :allequal)
+    allequal(itr) = isempty(itr) ? true : all(isequal(first(itr)), itr)
+end
+
+function between(x1, x, x2)
+    @assert x1 <= x2 "x1 should be smaller than  or equal to x2"
+    x < x1 && return x1
+    x > x2 && return x2
+    return x
+end

@@ -2,70 +2,83 @@
 #it made sense to seperate both vumpses as
 # - leading_boundary primarily works on MPSMultiline
 # - they search for different eigenvalues
-# - ham vumps should use Lanczos, this has to use arnoldi
-# - this vumps updates entire collumns (state[:,i]); incompatible with InfiniteMPS
+# - Hamiltonian vumps should use Lanczos, this has to use arnoldi
+# - this vumps updates entire collumns (ψ[:,i]); incompatible with InfiniteMPS
 # - (a)c-prime takes a different number of arguments
 # - it's very litle duplicate code, but together it'd be a bit more convoluted (primarily because of the indexing way)
 
-"
-    leading_boundary(state,opp,alg,envs=environments(state,ham))
+"""
+    leading_boundary(ψ, opp, alg, envs=environments(ψ, opp))
 
-    approximate the leading eigenvector for opp
-"
-function leading_boundary(state::InfiniteMPS,H,alg,envs=environments(state,H))
-    (st,pr,de) = leading_boundary(convert(MPSMultiline,state),Multiline([H]),alg,envs)
-    return convert(InfiniteMPS,st),pr,de
+Approximate the leading eigenvector for opp.
+"""
+function leading_boundary(ψ::InfiniteMPS, H, alg, envs=environments(ψ, H))
+    (st, pr, de) = leading_boundary(convert(MPSMultiline, ψ), Multiline([H]), alg, envs)
+    return convert(InfiniteMPS, st), pr, de
 end
 
-function leading_boundary(state::MPSMultiline, H,alg::VUMPS,envs = environments(state,H))
+function leading_boundary(ψ::MPSMultiline, H, alg::VUMPS, envs=environments(ψ, H))
+    galerkin = calc_galerkin(ψ, envs)
+    iter = 1
 
-    galerkin  = 1+alg.tol_galerkin
-    iter       = 1
-
-    temp_ACs = similar.(state.AC);
-    temp_Cs = similar.(state.CR);
+    temp_ACs = similar.(ψ.AC)
+    temp_Cs = similar.(ψ.CR)
 
     while true
+        tol_eigs, tol_gauge, tol_envs = updatetols(alg, iter, galerkin)
 
-        eigalg = Arnoldi(tol=alg.tol_galerkin/10)
+        eigalg = Arnoldi(; tol=tol_eigs)
 
-        @sync for col in 1:size(state,2)
+        if Defaults.parallelize_sites
+            @sync begin
+                for col in 1:size(ψ, 2)
+                    Threads.@spawn begin
+                        H_AC = ∂∂AC($col, $ψ, $H, $envs)
+                        ac = RecursiveVec($ψ.AC[:, col])
+                        _, acvecs = eigsolve(H_AC, ac, 1, :LM, eigalg)
+                        $temp_ACs[:, col] = acvecs[1].vecs[:]
+                    end
 
-            @Threads.spawn begin
-                H_AC = ∂∂AC($col,$state,$H,$envs);
-
-                (vals_ac,vecs_ac) = eigsolve(H_AC,RecursiveVec($state.AC[:,col]), 1, :LM, eigalg)
-                $temp_ACs[:,col] = vecs_ac[1].vecs[:]
+                    Threads.@spawn begin
+                        H_C = ∂∂C($col, $ψ, $H, $envs)
+                        c = RecursiveVec($ψ.CR[:, col])
+                        _, cvecs = eigsolve(H_C, c, 1, :LM, eigalg)
+                        $temp_Cs[:, col] = cvecs[1].vecs[:]
+                    end
+                end
             end
+        else
+            for col in 1:size(ψ, 2)
+                H_AC = ∂∂AC(col, ψ, H, envs)
+                ac = RecursiveVec(ψ.AC[:, col])
+                _, acvecs = eigsolve(H_AC, ac, 1, :LM, eigalg)
+                temp_ACs[:, col] = acvecs[1].vecs[:]
 
-            @Threads.spawn begin
-                H_C = ∂∂C($col,$state,$H,$envs);
-
-                (vals_c,vecs_c) = eigsolve(H_C,RecursiveVec($state.CR[:,col]), 1, :LM, eigalg)
-                $temp_Cs[:,col] = vecs_c[1].vecs[:]
+                H_C = ∂∂C(col, ψ, H, envs)
+                c = RecursiveVec(ψ.CR[:, col])
+                _, cvecs = eigsolve(H_C, c, 1, :LM, eigalg)
+                temp_Cs[:, col] = cvecs[1].vecs[:]
             end
         end
 
-        for row in 1:size(state,1),col in 1:size(state,2)
-            QAc,_ = leftorth!(temp_ACs[row,col], alg=TensorKit.QRpos())
-            Qc,_  = leftorth!(temp_Cs[row,col], alg=TensorKit.QRpos())
-            temp_ACs[row,col] = QAc*adjoint(Qc)
+        for row in 1:size(ψ, 1), col in 1:size(ψ, 2)
+            QAc, _ = leftorth!(temp_ACs[row, col]; alg=TensorKit.QRpos())
+            Qc, _ = leftorth!(temp_Cs[row, col]; alg=TensorKit.QRpos())
+            temp_ACs[row, col] = QAc * adjoint(Qc)
         end
 
-        state = MPSMultiline(temp_ACs,state.CR[:,end]; tol = alg.tol_gauge, maxiter = alg.orthmaxiter)
-        recalculate!(envs,state);
+        ψ = MPSMultiline(temp_ACs, ψ.CR[:, end]; tol=tol_gauge, maxiter=alg.orthmaxiter)
+        recalculate!(envs, ψ; tol=tol_envs)
 
-        (state,envs) = alg.finalize(iter,state,H,envs) :: Tuple{typeof(state),typeof(envs)};
+        (ψ, envs) = alg.finalize(iter, ψ, H, envs)::Tuple{typeof(ψ),typeof(envs)}
 
-        galerkin = calc_galerkin(state, envs)
+        galerkin = calc_galerkin(ψ, envs)
         alg.verbose && @info "vumps @iteration $(iter) galerkin = $(galerkin)"
 
-        if (galerkin <= alg.tol_galerkin) || iter>=alg.maxiter
-            iter>=alg.maxiter && @warn "vumps didn't converge $(galerkin)"
-            return state, envs, galerkin
+        if (galerkin <= alg.tol_galerkin) || iter >= alg.maxiter
+            iter >= alg.maxiter && @warn "vumps didn't converge $(galerkin)"
+            return ψ, envs, galerkin
         end
-
-
 
         iter += 1
     end
