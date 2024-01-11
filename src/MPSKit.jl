@@ -146,6 +146,8 @@ include("algorithms/ED.jl")
 
 include("algorithms/unionalg.jl")
 
+include("utility/phy_lib.jl")
+
 # include("precompile.jl")
 # _precompile_()
 

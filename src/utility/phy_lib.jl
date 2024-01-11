@@ -182,8 +182,8 @@ function cluster_ising_mpo(; gzxz::Float64=1.0, hz::Float64=0.0, gxx::Float64=1.
         return Ham, XX, XZX
     else
         X,_,Z = PauliMatrix()
-        @tensor XZX[-1 -2 -3;-4 -5 -6] := X[-1 1;-4]*Z[-2;-5]*X[-3; 1 -6];
-        @tensor XX[-1 -2;-3 -4] := X[-1 1;-3]*X[-2;1 -4];
+        @tensor XZX[-1 -2 -3;-4 -5 -6] := X[-1;-4]*Z[-2;-5]*X[-3; -6];
+        @tensor XX[-1 -2;-3 -4] := X[-1;-3]*X[-2; -4];
 
         Ham = MPOHamiltonian(-gxx*XX) + MPOHamiltonian(-gzxz*XZX) + MPOHamiltonian(-hz*Z)
         return Ham, XX, XZX
