@@ -166,7 +166,7 @@ function potts_op_CZ2()
     return Z, XX, Sz
 end
 
-function cluster_ising_mpo(h::Float64; hx::Float64=Inf, group="Z2")
+function cluster_ising_mpo(; gzxz::Float64=1.0, hz::Float64=0.0, gxx::Float64=1.0, group="Z2")
     if group == "Z2"
         vp = Rep[ℤ₂](0=>1,1=>1);
         vi = Rep[ℤ₂](1=>1);
@@ -177,16 +177,15 @@ function cluster_ising_mpo(h::Float64; hx::Float64=Inf, group="Z2")
         X2 = TensorMap(ones,ComplexF64,vp,vi*vp);
         @tensor XZX[-1 -2 -3;-4 -5 -6] := X1[-1 1;-4]*Z[-2;-5]*X2[-3; 1 -6];
         @tensor XX[-1 -2;-3 -4] := X1[-1 1;-3]*X2[-2;1 -4];
-        Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX)
+        Ham = MPOHamiltonian(-gxx*XX) + MPOHamiltonian(-gzxz*XZX) + MPOHamiltonian(hz*Z)
+
         return Ham, XX, XZX
     else
         X,_,Z = PauliMatrix()
         @tensor XZX[-1 -2 -3;-4 -5 -6] := X[-1 1;-4]*Z[-2;-5]*X[-3; 1 -6];
         @tensor XX[-1 -2;-3 -4] := X[-1 1;-3]*X[-2;1 -4];
-        Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX)
-        if isfinite(hx)
-            Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX) + MPOHamiltonian(hx*X)
-        end
+
+        Ham = MPOHamiltonian(-gxx*XX) + MPOHamiltonian(-gzxz*XZX) + MPOHamiltonian(-hz*Z)
         return Ham, XX, XZX
     end
 end
