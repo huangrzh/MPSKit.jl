@@ -18,7 +18,7 @@ Exclusive to infinite systems are
 
 with a last algorithm - GradientGrassmann - implemented for both finite and infinite systems.
 
-MPSComoving, which is a finite patch of mutable tensors embedded in an infinite MPS, is handled as a finite system where we only optimize over the patch of mutable tensors.
+WindowMPS, which is a finite patch of mutable tensors embedded in an infinite MPS, is handled as a finite system where we only optimize over the patch of mutable tensors.
 
 ### DMRG
 
@@ -31,7 +31,7 @@ operator = nonsym_ising_ham();
 The DMRG algorithm sweeps through the system, optimizing every site. Because of its single-site behaviour, this will always keep the bond dimension fixed. If you do want to increase the bond dimension dynamically, then there are two options. Either you use the two-site variant of DMRG (DMRG2()), or you make use of the finalize option. Finalize is a function that gets called at the end of every DMRG iteration. Within that function call one can modify the state.
 
 ```julia
-function my_finalize(iter,state,ham,envs)
+function my_finalize(iter,state,H,envs)
     println("Hello from iteration $iter")
     return state,envs;
 end
@@ -105,8 +105,8 @@ and the two-site scheme for finite MPS (TDVP2()). Similarly to DMRG, the one sit
 We have rudimentary support for turning an MPO hamiltonian into a time evolution MPO.
 
 ```julia
-make_time_mpo(ham,dt,alg::WI)
-make_time_mpo(ham,dt,alg::WII)
+make_time_mpo(H,dt,alg::WI)
+make_time_mpo(H,dt,alg::WII)
 ```
 
 two algorithms are available, corresponding to different orders of precision. It is possible to then multiply a state by this MPO, or to approximate (MPO,state) by a new state
@@ -114,8 +114,8 @@ two algorithms are available, corresponding to different orders of precision. It
 ```julia
 state = InfiniteMPS([ℂ^2],[ℂ^10]);
 operator = nonsym_ising_ham();
-mpo = make_time_mpo(operator,0.1,WII());
-approximate(state,(state,mpo),VUMPS())
+mpo = make_time_mpo(operator, 0.1, WII());
+approximate(state, (mpo, state), VUMPS())
 ```
 
 This feature is at the moment not very well supported.
@@ -148,37 +148,47 @@ ts = FiniteMPS(10,ℂ^2,ℂ^12);
 (energies,Bs) = excitations(th,FiniteExcited(),ts,envs);
 ```
 
-## changebonds
+## `changebonds`
 
-### optimal expand
+Many of the previously mentioned algorithms do not possess a way to dynamically change to
+bond dimension. This is often a problem, as the optimal bond dimension is often not a priori
+known, or needs to increase because of entanglement growth throughout the course of a
+simulation. [`changebonds`](@ref) exposes a way to change the bond dimension of a given
+state, without altering the state itself.
 
-One possible way to expand the bond dimension is described in the [original VUMPS paper](https://arxiv.org/abs/1701.07035). The idea is to look at the 2site derivative and add the most important blocks orthogonal to the current MPS. From the point of view of a local 2site update, this procedure is 'optimal'.
-
-The state will remain physically unchanged, but a one-site scheme will now be able to push the optimization further.
-
-```julia
-th = nonsym_ising_ham()
-ts = FiniteMPS(10,ℂ^2,ℂ^12);
-changebonds(ts,OptimalExpand(trscheme = truncdim(1))) # expand the bond dimension by 1
+```@docs; canonical=false
+changebonds
 ```
 
-### random expand
+There are several different algorithms implemented, each having their own advantages and
+disadvantages:
 
-This algorithm is almost identical to optimal expand, except we don't try to do anything 'clever'. The unitary blocks that get added are chosen at random.
+* [`SvdCut`](@ref): The simplest method for changing the bonddimension is found by simply
+  locally truncating the state using an SVD decomposition. This yields a (locally) optimal
+  truncation, but clearly cannot be used to increase the bond dimension. Note that a
+  globally optimal truncation can be obtained by using the [`SvdCut`](@ref) algorithm in
+  combination with [`approximate`](@ref). The state will remain largely unchanged.
 
-### svd cut
+* [`OptimalExpand`](@ref): This algorithm is based on the idea of expanding the bond
+  dimension by investigating the two-site derivative, and adding the most important blocks
+  which are orthogonal to the current state. From the point of view of a local two-site
+  update, this procedure is *optimal*, but it requires to evaluate a two-site derivative,
+  which can be costly when the physical space is large. The state will remain unchanged, but
+  a one-site scheme will now be able to push the optimization further.
 
-It is possible to truncate a state using the svd decomposition, this is implemented in svdcut.
+* [`RandExpand`](@ref): This algorithm similarly adds blocks orthogonal to the current
+  state, but does not attempt to select the most important ones, and rather just selects
+  them at random. The advantage here is that this is much cheaper than the optimal expand,
+  and if the bond dimension is grown slow enough, this still obtains a very good expansion
+  scheme. Again, the state will remain unchanged, and a one-site scheme will be able to push
+  the optimization further.
 
-```julia
-th = nonsym_ising_ham()
-ts = FiniteMPS(10,ℂ^2,ℂ^12);
-changebonds(ts,SvdCut(trscheme = truncdim(10))) # truncate the state to one with bond dimension 10
-```
+* [`VUMPSSvdCut`](@ref): This algorithm is based on the [`VUMPS`](@ref) algorithm, and
+  consists of performing a two-site update, and then truncating the state back down. Because
+  of the two-site update, this can again become expensive, but the algorithm has the option
+  of both expanding as well as truncating the bond dimension. Note that this will change the
+  state itself, as it consists of an update step.
 
-### VUMPS svd cut
-
-A particularly simple scheme useful when doing VUMPS is to do a 2site update, and then truncating this back down. It changes the state itself, so cannot be used to do time evolution, but that is no problem for energy minimization.
 
 ## leading boundary
 
@@ -192,15 +202,15 @@ ts = InfiniteMPS([ℂ^2],[ℂ^20]);
 
 if the mpo satisfies certain properties (positive and hermitian), it may also be possible to use GradientGrassmann.
 
-## approximate
+## `approximate`
 
-Sometimes we want to approximate the product of an MPO and a state by another state (for example during time evolution). The call signature is
+Often, it is useful to approximate a given MPS by another, typically by one of a different
+bond dimension. This is achieved by approximating an application of an MPO to the initial
+state, by a new state.
 
-```julia
-    approximate(initial_guess,(state,mpo),alg)
+```@docs; canonical=false
+approximate
 ```
-
-for finite systems alg can be Dmrg,Dmrg2 while for infinite systems we have Idmrg1,Idmrg2 and VUMPS. It's important to mention that the actual implementation differs a bit from the usual  Dmrg,Dmrg2,... for energy minimization but is rather inspired by it. For example, calling approximate with VUMPS actually uses an algorithm that has been described as [VOMPS](https://scipost.org/submissions/scipost_202008_00013v1/).
 
 ## Varia
 
