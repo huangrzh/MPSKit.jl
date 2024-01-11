@@ -107,7 +107,7 @@ randomize!(a::TensorMap) = fill_data!(a,randn)
 
 
 function safe_xlogx(t::AbstractTensorMap,eps = eps(real(eltype(t))))
-    (U,S,V) = tsvd(t,alg = SVD(), trunc = truncbelow(eps));
+    (U,S,V) = tsvd(t, trunc = truncbelow(eps));
     U*S*log(S)*V
 end
 
