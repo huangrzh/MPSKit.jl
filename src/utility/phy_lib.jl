@@ -181,11 +181,11 @@ function cluster_ising_mpo(h::Float64; hx::Float64=Inf, group="Z2")
         return Ham, XX, XZX
     else
         X,_,Z = PauliMatrix()
-        @tensor XZX[-1 -2 -3;-4 -5 -6] := X[-1 1;-4]*Z[-2;-5]*X[-3; 1 -6];
-        @tensor XX[-1 -2;-3 -4] := X[-1 1;-3]*X[-2;1 -4];
+        @tensor XZX[-1 -2 -3;-4 -5 -6] := X[-1;-4]*Z[-2;-5]*X[-3; -6];
+        @tensor XX[-1 -2;-3 -4] := X[-1;-3]*X[-2; -4];
         Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX)
         if isfinite(hx)
-            Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX) + MPOHamiltonian(hx*X)
+            Ham = MPOHamiltonian(-XX) + MPOHamiltonian(-h*XZX) + MPOHamiltonian(hx*Z)
         end
         return Ham, XX, XZX
     end
