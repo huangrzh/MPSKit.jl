@@ -177,7 +177,7 @@ function cluster_ising_mpo(; gzxz::Float64=1.0, hz::Float64=0.0, gxx::Float64=1.
         X2 = TensorMap(ones,ComplexF64,vp,vi*vp);
         @tensor XZX[-1 -2 -3;-4 -5 -6] := X1[-1 1;-4]*Z[-2;-5]*X2[-3; 1 -6];
         @tensor XX[-1 -2;-3 -4] := X1[-1 1;-3]*X2[-2;1 -4];
-        Ham = MPOHamiltonian(-gxx*XX) + MPOHamiltonian(-gzxz*XZX) + MPOHamiltonian(hz*Z)
+        Ham = MPOHamiltonian(-gxx*XX) + MPOHamiltonian(-gzxz*XZX) + MPOHamiltonian(-hz*Z)
 
         return Ham, XX, XZX
     else
