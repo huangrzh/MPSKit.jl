@@ -44,10 +44,63 @@ tensors `As`, or a list of left-gauged tensors `ALs`.
 - `maxiter`: gauge fixing maximum iterations
 """
 struct InfiniteMPS{A<:GenericMPSTensor,B<:MPSBondTensor} <: AbstractMPS
-    AL::PeriodicArray{A,1}
-    AR::PeriodicArray{A,1}
-    CR::PeriodicArray{B,1}
-    AC::PeriodicArray{A,1}
+    AL::PeriodicVector{A}
+    AR::PeriodicVector{A}
+    CR::PeriodicVector{B}
+    AC::PeriodicVector{A}
+    function InfiniteMPS{A,B}(AL::PeriodicVector{A},
+                              AR::PeriodicVector{A},
+                              CR::PeriodicVector{B},
+                              AC::PeriodicVector{A}=AL .* CR) where {A<:GenericMPSTensor,
+                                                                     B<:MPSBondTensor}
+        # verify lengths are compatible
+        L = length(AL)
+        L == length(AR) == length(CR) == length(AC) ||
+            throw(ArgumentError("incompatible lengths of AL, AR, CR, and AC"))
+        # verify tensors are compatible
+        spacetype(A) == spacetype(B) ||
+            throw(SpaceMismatch("incompatible space types of AL and CR"))
+
+        return new{A,B}(AL, AR, CR, AC)
+    end
+    function InfiniteMPS(AL::PeriodicVector{A},
+                         AR::PeriodicVector{A},
+                         CR::PeriodicVector{B},
+                         AC::PeriodicVector{A}=AL .* CR) where {A<:GenericMPSTensor,
+                                                                B<:MPSBondTensor}
+        # verify lengths are compatible
+        L = length(AL)
+        L == length(AR) == length(CR) == length(AC) ||
+            throw(ArgumentError("incompatible lengths of AL, AR, CR, and AC"))
+        # verify tensors are compatible
+        spacetype(A) == spacetype(B) ||
+            throw(SpaceMismatch("incompatible space types of AL and CR"))
+
+        for i in 1:L
+            N = numind(AL[i])
+            N == numind(AR[i]) == numind(AC[i]) ||
+                throw(SpaceMismatch("incompatible spaces at site $i"))
+
+            # verify that the physical spaces are compatible
+            phys_ind = 2:(N - 1)
+            all(space.(Ref(AL[i]), phys_ind) .== space.(Ref(AR[i]), phys_ind) .==
+                space.(Ref(AC[i]), phys_ind)) ||
+                throw(SpaceMismatch("incompatible physical spaces at site $i"))
+
+            # verify that the virtual spaces are compatible
+            space(AL[i], 1) == dual(space(AL[i - 1], N)) &&
+                space(AR[i], 1) == dual(space(AR[i - 1], N)) &&
+                space(AC[i], 1) == space(AL[i], 1) &&
+                space(AC[i], N) == space(AR[i], N) &&
+                space(CR[i], 1) == dual(space(AL[i], N)) &&
+                space(AR[i], 1) == dual(space(CR[i - 1], 2)) ||
+                throw(SpaceMismatch("incompatible virtual spaces at site $i"))
+            # verify that the spaces are non-zero
+            dim(space(AL[i])) > 0 && dim(space(CR[i])) > 0 ||
+                @warn "no fusion channels available at site $i"
+        end
+        return new{A,B}(AL, AR, CR, AC)
+    end
 end
 
 #===========================================================================================
@@ -55,9 +108,10 @@ Constructors
 ===========================================================================================#
 
 function InfiniteMPS(AL::AbstractVector{A}, AR::AbstractVector{A}, CR::AbstractVector{B},
-                     AC::AbstractVector{A}=PeriodicArray(AL .* CR)) where {A<:GenericMPSTensor,
-                                                                           B<:MPSBondTensor}
-    return InfiniteMPS{A,B}(AL, AR, CR, AC)
+                     AC::AbstractVector{A}=AL .* CR) where {A<:GenericMPSTensor,
+                                                            B<:MPSBondTensor}
+    return InfiniteMPS(convert(PeriodicVector{A}, AL), convert(PeriodicVector{A}, AR),
+                       convert(PeriodicVector{B}, CR), convert(PeriodicVector{A}, AC))
 end
 
 function InfiniteMPS(pspaces::AbstractVector{S}, Dspaces::AbstractVector{S};
@@ -83,35 +137,72 @@ function InfiniteMPS(f, elt::Type{<:Number}, ds::AbstractVector{Int},
 end
 
 function InfiniteMPS(A::AbstractVector{<:GenericMPSTensor}; kwargs...)
-    AR = PeriodicArray(copy.(A)) # copy to avoid side effects
+    # check spaces
+    leftvspaces = circshift(_firstspace.(A), -1)
+    rightvspaces = conj.(_lastspace.(A))
+    isnothing(findfirst(leftvspaces .!= rightvspaces)) ||
+        throw(SpaceMismatch("incompatible virtual spaces $leftvspaces and $rightvspaces"))
+
+    # check rank
+    A_copy = PeriodicArray(copy.(A)) # copy to avoid side effects
+    all(isfullrank, A_copy) ||
+        @warn "Constructing an MPS from tensors that are not full rank"
+    makefullrank!(A_copy)
+
+    AR = A_copy
+
     leftvspaces = circshift(_firstspace.(AR), -1)
     rightvspaces = conj.(_lastspace.(AR))
     isnothing(findfirst(leftvspaces .!= rightvspaces)) ||
         throw(SpaceMismatch("incompatible virtual spaces $leftvspaces and $rightvspaces"))
 
-    CR = PeriodicArray(isomorphism.(storagetype(eltype(A)), leftvspaces, leftvspaces))
+    # initial guess for the gauge tensor
+    V = _firstspace(A_copy[1])
+    C₀ = isomorphism(storagetype(eltype(A_copy)), V, V)
+
+    # initialize tensor storage
     AL = similar.(AR)
+    AC = similar.(AR)
+    CR = similar(AR, typeof(C₀))
+    ψ = InfiniteMPS{eltype(AL),eltype(CR)}(AL, AR, CR, AC)
 
-    uniform_leftorth!(AL, CR, AR; kwargs...)
-    uniform_rightorth!(AR, CR, AL; kwargs...)
+    # gaugefix the MPS
+    gaugefix!(ψ, A_copy, C₀; kwargs...)
+    mul!.(ψ.AC, ψ.AL, ψ.CR)
 
-    return InfiniteMPS(AL, AR, CR)
+    return ψ
 end
 
 function InfiniteMPS(AL::AbstractVector{<:GenericMPSTensor}, C₀::MPSBondTensor; kwargs...)
-    CR = PeriodicArray(fill(copy(C₀), length(AL)))
     AL = PeriodicArray(copy.(AL))
-    AR = similar(AL)
-    uniform_rightorth!(AR, CR, AL; kwargs...)
-    return InfiniteMPS(AL, AR, CR)
+
+    # initialize tensor storage
+    AC = similar.(AL)
+    AR = similar.(AL)
+    CR = similar(AR, typeof(C₀))
+    ψ = InfiniteMPS{eltype(AL),eltype(CR)}(AL, AR, CR, AC)
+
+    # gaugefix the MPS
+    gaugefix!(ψ, AL, C₀; order=:R, kwargs...)
+    mul!.(ψ.AC, ψ.AL, ψ.CR)
+
+    return ψ
 end
 
 function InfiniteMPS(C₀::MPSBondTensor, AR::AbstractVector{<:GenericMPSTensor}; kwargs...)
-    CR = PeriodicArray(fill(copy(C₀), length(AR)))
     AR = PeriodicArray(copy.(AR))
-    AL = similar(AR)
-    uniform_leftorth!(AL, CR, AR; kwargs...)
-    return InfiniteMPS(AL, AR, CR)
+
+    # initialize tensor storage
+    AC = similar.(AR)
+    AL = similar.(AR)
+    CR = similar(AR, typeof(C₀))
+    ψ = InfiniteMPS{eltype(AL),eltype(CR)}(AL, AR, CR, AC)
+
+    # gaugefix the MPS
+    gaugefix!(ψ, AR, C₀; order=:L, kwargs...)
+    mul!.(ψ.AC, ψ.AL, ψ.CR)
+
+    return ψ
 end
 
 #===========================================================================================
@@ -125,12 +216,12 @@ Base.copy(ψ::InfiniteMPS) = InfiniteMPS(copy(ψ.AL), copy(ψ.AR), copy(ψ.CR), 
 function Base.repeat(ψ::InfiniteMPS, i::Int)
     return InfiniteMPS(repeat(ψ.AL, i), repeat(ψ.AR, i), repeat(ψ.CR, i), repeat(ψ.AC, i))
 end
-function Base.similar(ψ::InfiniteMPS)
-    return InfiniteMPS(similar(ψ.AL), similar(ψ.AR), similar(ψ.CR), similar(ψ.AC))
+function Base.similar(ψ::InfiniteMPS{A,B}) where {A,B}
+    return InfiniteMPS{A,B}(similar(ψ.AL), similar(ψ.AR), similar(ψ.CR), similar(ψ.AC))
 end
-function Base.circshift(st::InfiniteMPS, n)
-    return InfiniteMPS(circshift(st.AL, n), circshift(st.AR, n), circshift(st.CR, n),
-                       circshift(st.AC, n))
+function Base.circshift(ψ::InfiniteMPS, n)
+    return InfiniteMPS(circshift(ψ.AL, n), circshift(ψ.AR, n), circshift(ψ.CR, n),
+                       circshift(ψ.AC, n))
 end
 
 site_type(::Type{<:InfiniteMPS{A}}) where {A} = A
@@ -167,10 +258,9 @@ end
 function TensorKit.dot(ψ₁::InfiniteMPS, ψ₂::InfiniteMPS; krylovdim=30)
     init = similar(ψ₁.AL[1], _firstspace(ψ₂.AL[1]) ← _firstspace(ψ₁.AL[1]))
     randomize!(init)
-    (vals, _, convhist) = eigsolve(TransferMatrix(ψ₂.AL, ψ₁.AL), init, 1, :LM,
-                                   Arnoldi(; krylovdim=krylovdim))
-    convhist.converged == 0 && @info "dot mps not converged"
-    return vals[1]
+    val, = fixedpoint(TransferMatrix(ψ₂.AL, ψ₁.AL), init, :LM,
+                      Arnoldi(; krylovdim=krylovdim))
+    return val
 end
 
 function Base.show(io::IO, ::MIME"text/plain", ψ::InfiniteMPS)

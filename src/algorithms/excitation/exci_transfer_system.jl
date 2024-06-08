@@ -5,18 +5,22 @@ function left_excitation_transfer_system(lBs, H, exci; mom=exci.momentum,
     odim = length(lBs)
 
     for i in 1:odim
-        #this operation can be sped up by at least a factor 2;  found mostly consists of zeros
-        start = found * TransferMatrix(exci.right_gs.AR, H[:], exci.left_gs.AL) /
-                exp(1im * mom * len)
+        # this operation can in principle be even further optimized for larger unit cells
+        # as we only require the terms that end at level i.
+        # this would require to check the finite state machine, and discard non-connected
+        # terms.
+        H_partial = map(site -> H.data[site, 1:i, 1:i], 1:len)
+        T = TransferMatrix(exci.right_gs.AR, H_partial, exci.left_gs.AL)
+        start = scale!(last(found[1:i] * T), cis(-mom * len))
         if exci.trivial && isid(H, i)
-            @plansor start[i][-1 -2; -3 -4] -= start[i][1 4; -3 2] *
-                                               r_RL(exci.right_gs)[2; 3] *
-                                               τ[3 4; 5 1] *
-                                               l_RL(exci.right_gs)[-1; 6] *
-                                               τ[5 6; -4 -2]
+            @plansor start[-1 -2; -3 -4] -= start[1 4; -3 2] *
+                                            r_RL(exci.right_gs)[2; 3] *
+                                            τ[3 4; 5 1] *
+                                            l_RL(exci.right_gs)[-1; 6] *
+                                            τ[5 6; -4 -2]
         end
 
-        found[i] = lBs[i] + start[i]
+        found[i] = add!(start, lBs[i])
 
         if reduce(&, contains.(H.data, i, i))
             if isid(H, i)
@@ -29,10 +33,10 @@ function left_excitation_transfer_system(lBs, H, exci; mom=exci.momentum,
                                     exci.left_gs.AL)
             end
 
-            (found[i], convhist) = linsolve(flip(tm), found[i], found[i], solver, 1,
-                                            -1 / exp(1im * mom * len))
-            convhist.converged < 1 &&
-                @info "left $(i) excitation inversion failed normres $(convhist.normres)"
+            found[i], convhist = linsolve(flip(tm), found[i], found[i], solver, 1,
+                                          -cis(-mom * len))
+            convhist.converged == 0 &&
+                @warn "GBL$i failed to converge: normres = $(convhist.normres)"
         end
     end
     return found
@@ -45,17 +49,20 @@ function right_excitation_transfer_system(rBs, H, exci; mom=exci.momentum,
     odim = length(rBs)
 
     for i in odim:-1:1
-        start = TransferMatrix(exci.left_gs.AL, H[:], exci.right_gs.AR) *
-                found *
-                exp(1im * mom * len)
-
+        # this operation can in principle be even further optimized for larger unit cells
+        # as we only require the terms that end at level i.
+        # this would require to check the finite state machine, and discard non-connected
+        # terms.
+        H_partial = map(site -> H.data[site, i:odim, i:odim], 1:len)
+        T = TransferMatrix(exci.left_gs.AL, H_partial, exci.right_gs.AR)
+        start = scale!(first(T * found[i:odim]), cis(mom * len))
         if exci.trivial && isid(H, i)
-            @plansor start[i][-1 -2; -3 -4] -= τ[6 2; 3 4] * start[i][3 4; -3 5] *
-                                               l_LR(exci.right_gs)[5; 2] *
-                                               r_LR(exci.right_gs)[-1; 1] * τ[-2 -4; 1 6]
+            @plansor start[-1 -2; -3 -4] -= τ[6 2; 3 4] * start[3 4; -3 5] *
+                                            l_LR(exci.right_gs)[5; 2] *
+                                            r_LR(exci.right_gs)[-1; 1] * τ[-2 -4; 1 6]
         end
 
-        found[i] = rBs[i] + start[i]
+        found[i] = add!(start, rBs[i])
 
         if reduce(&, contains.(H.data, i, i))
             if isid(H, i)
@@ -68,10 +75,10 @@ function right_excitation_transfer_system(rBs, H, exci; mom=exci.momentum,
                                     exci.right_gs.AR)
             end
 
-            (found[i], convhist) = linsolve(tm, found[i], found[i], solver, 1,
-                                            -exp(1im * mom * len))
+            found[i], convhist = linsolve(tm, found[i], found[i], solver, 1,
+                                          -cis(mom * len))
             convhist.converged < 1 &&
-                @info "right $(i) excitation inversion failed normres $(convhist.normres)"
+                @warn "GBR$i failed to converge: normres = $(convhist.normres)"
         end
     end
     return found

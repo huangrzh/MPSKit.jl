@@ -10,6 +10,7 @@ using Accessors
 using LinearAlgebra: diag, Diagonal
 using LinearAlgebra: LinearAlgebra
 using Base: @kwdef
+using LoggingExtras
 
 # bells and whistles for mpses
 export InfiniteMPS, FiniteMPS, WindowMPS, MPSMultiline
@@ -27,7 +28,7 @@ export entanglementplot, transferplot
 
 # hamiltonian things
 export Cache
-export SparseMPO, MPOHamiltonian, DenseMPO, MPOMultiline
+export SparseMPO, MPOHamiltonian, DenseMPO, MPOMultiline, FiniteMPO
 export UntimedOperator, TimedOperator, MultipliedOperator, LazySum
 
 export ∂C, ∂AC, ∂AC2, environments, expectation_value, effective_excitation_hamiltonian
@@ -35,8 +36,8 @@ export leftenv, rightenv
 
 # algos
 export find_groundstate!, find_groundstate, leading_boundary
-export VUMPS, DMRG, DMRG2, IDMRG1, IDMRG2, GradientGrassmann
-export excitations, FiniteExcited, QuasiparticleAnsatz
+export VUMPS, VOMPS, DMRG, DMRG2, IDMRG1, IDMRG2, GradientGrassmann
+export excitations, FiniteExcited, QuasiparticleAnsatz, ChepigaAnsatz, ChepigaAnsatz2
 export marek_gap, correlation_length, correlator
 export time_evolve, timestep!, timestep
 export TDVP, TDVP2, make_time_mpo, WI, WII, TaylorCluster
@@ -57,7 +58,19 @@ export transfer_left, transfer_right
 @deprecate params(args...) environments(args...)
 @deprecate InfiniteMPO(args...) DenseMPO(args...)
 
+# Abstract type defs
+abstract type Algorithm end
+abstract type Cache end # cache "manages" environments
+
+# submodules
+include("utility/dynamictols.jl")
+using .DynamicTols
+
 include("utility/defaults.jl")
+using .Defaults: VERBOSE_NONE, VERBOSE_WARN, VERBOSE_CONV, VERBOSE_ITER, VERBOSE_ALL
+include("utility/logging.jl")
+using .IterativeLoggers
+include("utility/iterativesolvers.jl")
 
 include("utility/periodicarray.jl")
 include("utility/multiline.jl")
@@ -89,8 +102,6 @@ include("operators/lazysum.jl")
 include("transfermatrix/transfermatrix.jl")
 include("transfermatrix/transfer.jl")
 
-abstract type Cache end # cache "manages" environments
-
 include("environments/FinEnv.jl")
 include("environments/abstractinfenv.jl")
 include("environments/permpoinfenv.jl")
@@ -100,8 +111,7 @@ include("environments/multipleenv.jl")
 include("environments/idmrgenv.jl")
 include("environments/lazylincocache.jl")
 
-abstract type Algorithm end
-
+include("algorithms/fixedpoint.jl")
 include("algorithms/derivatives.jl")
 include("algorithms/expval.jl")
 include("algorithms/toolbox.jl")
@@ -130,9 +140,11 @@ include("algorithms/propagator/corvector.jl")
 include("algorithms/excitation/excitations.jl")
 include("algorithms/excitation/quasiparticleexcitation.jl")
 include("algorithms/excitation/dmrgexcitation.jl")
+include("algorithms/excitation/chepigaansatz.jl")
 include("algorithms/excitation/exci_transfer_system.jl")
 
 include("algorithms/statmech/vumps.jl")
+include("algorithms/statmech/vomps.jl")
 include("algorithms/statmech/gradient_grassmann.jl")
 
 include("algorithms/fidelity_susceptibility.jl")

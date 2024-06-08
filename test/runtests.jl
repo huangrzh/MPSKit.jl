@@ -1,26 +1,27 @@
-using Pkg, Test
+using Test
 
-const GROUP = uppercase(get(ENV, "GROUP", "ALL"))
+# check if user supplied args
+pat = r"(?:--group=)(\w+)"
+arg_id = findfirst(contains(pat), ARGS)
+const GROUP = if isnothing(arg_id)
+    uppercase(get(ENV, "GROUP", "ALL"))
+else
+    uppercase(only(match(pat, ARGS[arg_id]).captures))
+end
+
+include("setup.jl")
 
 @time begin
     if GROUP == "ALL" || GROUP == "STATES"
-        @time @testset "States" verbose = true begin
-            include("states.jl")
-        end
+        @time include("states.jl")
     end
     if GROUP == "ALL" || GROUP == "OPERATORS"
-        @time @testset "Operators" verbose = true begin
-            include("operators.jl")
-        end
+        @time include("operators.jl")
     end
     if GROUP == "ALL" || GROUP == "ALGORITHMS"
-        @time @testset "Algorithms" verbose = true begin
-            include("algorithms.jl")
-        end
+        @time include("algorithms.jl")
     end
     if GROUP == "ALL" || GROUP == "OTHER"
-        @time @testset "Other" verbose = true begin
-            include("other.jl")
-        end
+        @time include("other.jl")
     end
 end

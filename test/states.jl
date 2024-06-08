@@ -3,8 +3,14 @@ println("
 |   States   |
 --------------
 ")
+module TestStates
 
-include("setup.jl")
+using ..TestSetup
+using Test, TestExtras
+using MPSKit
+using MPSKit: _transpose_front, _transpose_tail
+using TensorKit
+using TensorKit: ℙ
 
 @testset "FiniteMPS ($(sectortype(D)), $elt)" for (D, d, elt) in [(ℙ^10, ℙ^2, ComplexF64),
                                                                   (Rep[SU₂](1 => 1, 0 => 3),
@@ -18,8 +24,7 @@ include("setup.jl")
 
     for i in 1:length(ψ)
         @test ψ.AC[i] ≈ ψ.AL[i] * ψ.CR[i]
-        @test ψ.AC[i] ≈
-              MPSKit._transpose_front(ψ.CR[i - 1] * MPSKit._transpose_tail(ψ.AR[i]))
+        @test ψ.AC[i] ≈ _transpose_front(ψ.CR[i - 1] * _transpose_tail(ψ.AR[i]))
     end
 
     @test elt == scalartype(ψ)
@@ -37,7 +42,7 @@ end
                                                                    Rep[U₁](-1 => 1, 0 => 1, 1 => 1),
                                                                    ComplexF64)]
     ψ_small = FiniteMPS(rand, elt, 4, d, D)
-    ψ_small2 = FiniteMPS(MPSKit.decompose_localmps(convert(TensorMap, ψ_small)))
+    ψ_small2 = FiniteMPS(convert(TensorMap, ψ_small))
     @test dot(ψ_small, ψ_small2) ≈ dot(ψ_small, ψ_small)
 end
 
@@ -93,7 +98,7 @@ end
 
 @testset "WindowMPS" begin
     ham = force_planar(transverse_field_ising(; g=8.0))
-    (gs, _, _) = find_groundstate(InfiniteMPS([ℙ^2], [ℙ^10]), ham, VUMPS(; verbose=false))
+    (gs, _, _) = find_groundstate(InfiniteMPS([ℙ^2], [ℙ^10]), ham, VUMPS(; verbosity=0))
 
     #constructor 1 - give it a plain array of tensors
     window_1 = WindowMPS(gs, copy.([gs.AC[1]; [gs.AR[i] for i in 2:10]]), gs)
@@ -111,8 +116,8 @@ end
 
     for i in 1:length(window)
         @test window.AC[i] ≈ window.AL[i] * window.CR[i]
-        @test window.AC[i] ≈ MPSKit._transpose_front(window.CR[i - 1] *
-                                                     MPSKit._transpose_tail(window.AR[i]))
+        @test window.AC[i] ≈
+              _transpose_front(window.CR[i - 1] * _transpose_tail(window.AR[i]))
     end
 
     @test norm(window) ≈ 1
@@ -125,7 +130,7 @@ end
     e1 = expectation_value(window, ham)
 
     v1 = variance(window, ham)
-    (window, envs, _) = find_groundstate(window, ham, DMRG(; verbose=false))
+    (window, envs, _) = find_groundstate(window, ham, DMRG(; verbosity=0))
     v2 = variance(window, ham)
 
     e2 = expectation_value(window, ham)
@@ -133,8 +138,8 @@ end
     @test v2 < v1
     @test real(e2[2]) ≤ real(e1[2])
 
-    (window, envs) = timestep(window, ham, 0.1, 0.0, TDVP2(), envs)
-    (window, envs) = timestep(window, ham, 0.1, 0.0, TDVP(), envs)
+    window, envs = timestep(window, ham, 0.1, 0.0, TDVP2(), envs)
+    window, envs = timestep(window, ham, 0.1, 0.0, TDVP(), envs)
 
     e3 = expectation_value(window, ham)
 
@@ -143,7 +148,7 @@ end
 end
 
 @testset "Quasiparticle state" verbose = true begin
-    @testset "Finite" verbose = true for (th, D, d) in
+    @testset "Finite" verbose = true for (H, D, d) in
                                          [(force_planar(transverse_field_ising()), ℙ^10,
                                            ℙ^2),
                                           (heisenberg_XXX(SU2Irrep; spin=1),
@@ -152,43 +157,43 @@ end
         normalize!(ψ)
 
         #rand_quasiparticle is a private non-exported function
-        qst1 = MPSKit.LeftGaugedQP(rand, ψ)
-        qst2 = MPSKit.LeftGaugedQP(rand, ψ)
+        ϕ₁ = MPSKit.LeftGaugedQP(rand, ψ)
+        ϕ₂ = MPSKit.LeftGaugedQP(rand, ψ)
 
-        @test norm(axpy!(1, qst1, copy(qst2))) ≤ norm(qst1) + norm(qst2)
-        @test norm(qst1) * 3 ≈ norm(qst1 * 3)
+        @test norm(axpy!(1, ϕ₁, copy(ϕ₂))) ≤ norm(ϕ₁) + norm(ϕ₂)
+        @test norm(ϕ₁) * 3 ≈ norm(ϕ₁ * 3)
 
-        normalize!(qst1)
+        normalize!(ϕ₁)
 
-        qst1_f = convert(FiniteMPS, qst1)
-        qst2_f = convert(FiniteMPS, qst2)
+        ϕ₁_f = convert(FiniteMPS, ϕ₁)
+        ϕ₂_f = convert(FiniteMPS, ϕ₂)
 
-        ovl_f = dot(qst1_f, qst2_f)
-        ovl_q = dot(qst1, qst2)
-        @test ovl_f ≈ ovl_q atol = 1e-5
-        @test norm(qst1_f) ≈ norm(qst1) atol = 1e-5
+        @test dot(ϕ₁_f, ϕ₂_f) ≈ dot(ϕ₁, ϕ₂) atol = 1e-5
+        @test norm(ϕ₁_f) ≈ norm(ϕ₁) atol = 1e-5
 
-        ev_f = sum(expectation_value(qst1_f, th) - expectation_value(ψ, th))
-        ev_q = dot(qst1, effective_excitation_hamiltonian(th, qst1))
+        ev_f = sum(expectation_value(ϕ₁_f, H) - expectation_value(ψ, H))
+        ev_q = dot(ϕ₁, effective_excitation_hamiltonian(H, ϕ₁))
         @test ev_f ≈ ev_q atol = 1e-5
     end
 
     @testset "Infinite" for (th, D, d) in
                             [(force_planar(transverse_field_ising()), ℙ^10, ℙ^2),
-                             (heisenberg_XXX(SU2Irrep; spin=1), Rep[SU₂](1 => 1, 0 => 3),
+                             (heisenberg_XXX(SU2Irrep; spin=1), Rep[SU₂](1 => 3, 0 => 2),
                               Rep[SU₂](1 => 1))]
         period = rand(1:4)
         ψ = InfiniteMPS(fill(d, period), fill(D, period))
 
         #rand_quasiparticle is a private non-exported function
-        qst1 = MPSKit.LeftGaugedQP(rand, ψ)
-        qst2 = MPSKit.LeftGaugedQP(rand, ψ)
+        ϕ₁ = MPSKit.LeftGaugedQP(rand, ψ)
+        ϕ₂ = MPSKit.LeftGaugedQP(rand, ψ)
 
-        @test norm(axpy!(1, qst1, copy(qst2))) ≤ norm(qst1) + norm(qst2)
-        @test norm(qst1) * 3 ≈ norm(qst1 * 3)
+        @test norm(axpy!(1, ϕ₁, copy(ϕ₂))) ≤ norm(ϕ₁) + norm(ϕ₂)
+        @test norm(ϕ₁) * 3 ≈ norm(ϕ₁ * 3)
 
-        @test dot(qst1,
-                  convert(MPSKit.LeftGaugedQP, convert(MPSKit.RightGaugedQP, qst1))) ≈
-              dot(qst1, qst1) atol = 1e-10
+        @test dot(ϕ₁,
+                  convert(MPSKit.LeftGaugedQP, convert(MPSKit.RightGaugedQP, ϕ₁))) ≈
+              dot(ϕ₁, ϕ₁) atol = 1e-10
     end
+end
+
 end

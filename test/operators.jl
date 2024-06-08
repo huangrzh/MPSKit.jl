@@ -3,11 +3,95 @@ println("
 |   Operators   |
 -----------------
 ")
+module TestOperators
 
-include("setup.jl")
+using ..TestSetup
+using Test, TestExtras
+using MPSKit
+using MPSKit: _transpose_front, _transpose_tail
+using TensorKit
+using TensorKit: ℙ
+using VectorInterface: One
 
 pspaces = (ℙ^4, Rep[U₁](0 => 2), Rep[SU₂](1 => 1))
 vspaces = (ℙ^10, Rep[U₁]((0 => 20)), Rep[SU₂](1 // 2 => 10, 3 // 2 => 5, 5 // 2 => 1))
+
+@testset "FiniteMPO" begin
+    # start from random operators
+    L = 4
+    O₁ = TensorMap(rand, ComplexF64, (ℂ^2)^L, (ℂ^2)^L)
+    O₂ = TensorMap(rand, ComplexF64, space(O₁))
+
+    # create MPO and convert it back to see if it is the same
+    mpo₁ = FiniteMPO(O₁) # type-unstable for now!
+    mpo₂ = FiniteMPO(O₂)
+    @test convert(TensorMap, mpo₁) ≈ O₁
+    @test convert(TensorMap, -mpo₂) ≈ -O₂
+
+    # test scalar multiplication
+    α = rand(ComplexF64)
+    @test convert(TensorMap, α * mpo₁) ≈ α * O₁
+    @test convert(TensorMap, mpo₁ * α) ≈ O₁ * α
+
+    # test addition and multiplication
+    @test convert(TensorMap, mpo₁ + mpo₂) ≈ O₁ + O₂
+    @test convert(TensorMap, mpo₁ * mpo₂) ≈ O₁ * O₂
+
+    # test application to a state
+    ψ₁ = Tensor(rand, ComplexF64, domain(O₁))
+    mps₁ = FiniteMPS(ψ₁)
+
+    @test convert(TensorMap, mpo₁ * mps₁) ≈ O₁ * ψ₁
+
+    @test dot(mps₁, mpo₁, mps₁) ≈ dot(ψ₁, O₁, ψ₁)
+    @test dot(mps₁, mpo₁, mps₁) ≈ dot(mps₁, mpo₁ * mps₁)
+    # test conversion to and from mps
+    mpomps₁ = convert(FiniteMPS, mpo₁)
+    mpompsmpo₁ = convert(FiniteMPO, mpomps₁)
+
+    @test convert(FiniteMPO, mpomps₁) ≈ mpo₁ rtol = 1e-6
+
+    @test dot(mpomps₁, mpomps₁) ≈ dot(mpo₁, mpo₁)
+end
+
+@testset "Finite MPOHamiltonian" begin
+    L = 3
+    lattice = fill(ℂ^2, L)
+    O₁ = TensorMap(rand, ComplexF64, ℂ^2, ℂ^2)
+    E = id(Matrix{ComplexF64}, domain(O₁))
+    O₂ = TensorMap(rand, ComplexF64, ℂ^2 * ℂ^2, ℂ^2 * ℂ^2)
+
+    H1 = MPOHamiltonian(lattice, i => O₁ for i in 1:L)
+    H2 = MPOHamiltonian(lattice, (i, i + 1) => O₂ for i in 1:(L - 1))
+    H3 = MPOHamiltonian(lattice, 1 => O₁, (2, 3) => O₂, (1, 3) => O₂)
+
+    # check if constructor works by converting back to tensormap
+    H1_tm = convert(TensorMap, H1)
+    operators = vcat(fill(E, L - 1), O₁)
+    @test H1_tm ≈ mapreduce(+, 1:L) do i
+        return reduce(⊗, circshift(operators, i))
+    end
+    operators = vcat(fill(E, L - 2), O₂)
+    @test convert(TensorMap, H2) ≈ mapreduce(+, 1:(L - 1)) do i
+        return reduce(⊗, circshift(operators, i))
+    end
+    @test convert(TensorMap, H3) ≈
+          O₁ ⊗ E ⊗ E + E ⊗ O₂ + permute(O₂ ⊗ E, ((1, 3, 2), (4, 6, 5)))
+
+    # test linear algebra
+    @test H1 ≈
+          MPOHamiltonian(lattice, 1 => O₁) + MPOHamiltonian(lattice, 2 => O₁) +
+          MPOHamiltonian(lattice, 3 => O₁)
+    @test 0.8 * H1 + 0.2 * H1 ≈ H1 atol = 1e-6
+    @test convert(TensorMap, H1 + H2) ≈ convert(TensorMap, H1) + convert(TensorMap, H2) atol = 1e-6
+
+    # test dot and application
+    state = Tensor(rand, ComplexF64, prod(lattice))
+    mps = FiniteMPS(state)
+
+    @test convert(TensorMap, H1 * mps) ≈ H1_tm * state
+    @test dot(mps, H2, mps) ≈ dot(mps, H2 * mps)
+end
 
 @testset "MPOHamiltonian $(sectortype(pspace))" for (pspace, Dspace) in zip(pspaces,
                                                                             vspaces)
@@ -210,7 +294,7 @@ vspaces = (ℙ^10, Rep[U₁]((0 => 20)), Rep[SU₂](1 => 10, 3 => 5, 5 => 1))
         end
         @test summedhct(ψ.AC[1], 0.0) ≈ sum2
 
-        v = MPSKit._transpose_front(ψ.AC[1]) * MPSKit._transpose_tail(ψ.AR[2])
+        v = _transpose_front(ψ.AC[1]) * _transpose_tail(ψ.AR[2])
         summedhct = MPSKit.∂∂AC2(1, ψ, summedH, summedEnvs)
         sum3 = sum(zip(Hs, Envs)) do (H, env)
             return MPSKit.∂∂AC2(1, ψ, H, env)(v)
@@ -260,7 +344,7 @@ vspaces = (ℙ^10, Rep[U₁]((0 => 20)), Rep[SU₂](1 => 10, 3 => 5, 5 => 1))
         end
         @test summedhct(ψ.AC[1], t) ≈ sum2
 
-        v = MPSKit._transpose_front(ψ.AC[1]) * MPSKit._transpose_tail(ψ.AR[2])
+        v = _transpose_front(ψ.AC[1]) * _transpose_tail(ψ.AR[2])
         summedhct = MPSKit.∂∂AC2(1, ψ, summedH, summedEnvs)
         sum3 = sum(zip(fs, Hs, Envs)) do (f, H, env)
             if f isa Function
@@ -270,4 +354,6 @@ vspaces = (ℙ^10, Rep[U₁]((0 => 20)), Rep[SU₂](1 => 10, 3 => 5, 5 => 1))
         end
         @test summedhct(v, t) ≈ sum3
     end
+end
+
 end
