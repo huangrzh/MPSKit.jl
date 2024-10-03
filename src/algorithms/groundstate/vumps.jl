@@ -86,7 +86,7 @@ function find_groundstate(ψ::InfiniteMPS, H, alg::VUMPS, envs=environments(ψ, 
             ϵ = calc_galerkin(ψ, envs)
         end
 
-        λ = sum(expectation_value(ψ, H, envs))
+        λ = abs(sum(expectation_value(ψ, H, envs)))
         alg.verbose &&
             @info @sprintf("iter %4d:   %.4e   %.12e  %.2e", iter, ϵ, λ, Δt)
 
@@ -95,7 +95,7 @@ function find_groundstate(ψ::InfiniteMPS, H, alg::VUMPS, envs=environments(ψ, 
             @warn "VUMPS maximum iterations", iter, ϵ, λ
     end
 
-    λ = sum(expectation_value(ψ, H, envs))
+    λ = abs(sum(expectation_value(ψ, H, envs)))
     Δt = (Base.time_ns() - t₀) / 1.0e9
     alg.verbose && @info @sprintf("vumps:   %.4e   %.12e    t=%.2e", ϵ, λ, Δt)
     return ψ, envs, ϵ
