@@ -6,6 +6,7 @@ using Base.Iterators
 using RecipesBase
 using VectorInterface
 using Accessors
+using Printf
 
 using LinearAlgebra: diag, Diagonal
 using LinearAlgebra: LinearAlgebra
