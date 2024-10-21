@@ -86,7 +86,7 @@ function find_groundstate(ψ::InfiniteMPS, H, alg::VUMPS, envs=environments(ψ, 
             ϵ = calc_galerkin(ψ, envs)
         end
 
-        λ = abs(sum(expectation_value(ψ, H, envs)))
+        λ = real(sum(expectation_value(ψ, H, envs)))
         alg.verbose &&
             @info @sprintf("iter %4d:   %.4e   %.12e  %.2e", iter, ϵ, λ, Δt)
 
