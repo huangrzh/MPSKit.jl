@@ -35,7 +35,7 @@ export ∂C, ∂AC, ∂AC2, environments, expectation_value, effective_excitatio
 export leftenv, rightenv
 
 # algos
-export find_groundstate!, find_groundstate, leading_boundary
+export find_groundstate!, find_groundstate, find_groundstate_seq, leading_boundary
 export VUMPS, DMRG, DMRG2, IDMRG1, IDMRG2, GradientGrassmann
 export excitations, FiniteExcited, QuasiparticleAnsatz
 export marek_gap, correlation_length, correlator

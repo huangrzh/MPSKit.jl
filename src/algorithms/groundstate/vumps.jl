@@ -48,6 +48,7 @@ function updatetols(alg::VUMPS, iter, ϵ)
     return tol_eigs, tol_envs, tol_gauge
 end
 
+
 "
     find_groundstate(ψ, H, alg, envs=environments(ψ, H))
 
@@ -121,4 +122,72 @@ function _vumps_localupdate!(AC′, loc, ψ, H, envs, eigalg, factalg=QRpos())
         Q_C, _ = TensorKit.leftorth!(crvecs[1]; alg=factalg)
     end
     return mul!(AC′, Q_AC, adjoint(Q_C))
+end
+
+function _update_mps!(ψ, loc, ACv, CRv, CLv)
+    ψ.AC[loc] = ACv
+
+    UCL,laml,VCL = tsvd(CLv)
+    UCR,lamr,VCR = tsvd(CRv)
+    UAC,lam,VAC = tsvd(ACv)
+    UAC2,lam2,VAC2 = tsvd(ACv, (1,), (2,3))
+    ψ.AL[loc] = UAC*VAC*adjoint(VCR)*adjoint(UCR)
+    ψ.AR[loc] = permute(adjoint(VCL)*adjoint(UCL)*UAC2*VAC2, (1,2),(3,))
+    ψ.CR[loc] = CRv
+    ψ.CR[loc-1] = CLv
+end
+
+function find_groundstate_seq(ψ::InfiniteMPS, H, alg::VUMPS, envs=environments(ψ, H))
+    t₀ = Base.time_ns()
+    ϵ::Float64 = calc_galerkin(ψ, envs) 
+    tol_eigs, tol_envs, tol_gauge = updatetols(alg, 1, ϵ)
+
+    for iter in 1:(alg.maxiter)
+        temp_ACs = copy(ψ.AL)
+
+        tol_eigs, tol_envs, tol_gauge = updatetols(alg, iter, ϵ)
+        Δt = @elapsed begin
+            eigalg = Arnoldi(; tol=tol_eigs)
+
+            if length(ψ) == 1
+                _vumps_localupdate!(temp_ACs[1], 1, ψ, H, envs, eigalg)
+                ψ = InfiniteMPS(temp_ACs, ψ.CR[end]; tol=tol_gauge, maxiter=alg.orthmaxiter)
+                recalculate!(envs, ψ; tol=tol_envs)
+                ψ, envs = alg.finalize(iter, ψ, H, envs)::Tuple{typeof(ψ),typeof(envs)}
+                ϵ = calc_galerkin(ψ, envs)
+            else
+                for loc in 1:length(ψ)        
+                    _, ACv = eigsolve(∂∂AC(loc, ψ, H, envs), ψ.AC[loc], 1, :SR, eigalg)
+                    _, CRv = eigsolve(∂∂C(loc, ψ, H, envs), ψ.CR[loc], 1, :SR, eigalg)
+                    _, CLv = eigsolve(∂∂C(loc-1, ψ, H, envs), ψ.CR[loc-1], 1, :SR, eigalg)
+
+                    _update_mps!(ψ, loc, ACv[1], CRv[1], CLv[1])
+
+                    recalculate!(envs, ψ; tol=tol_envs)
+                end
+
+                ψ, envs = alg.finalize(iter, ψ, H, envs)::Tuple{typeof(ψ),typeof(envs)}
+
+                ϵ = calc_galerkin(ψ, envs)
+            end
+        end
+
+        λ = real(sum(expectation_value(ψ, H, envs)))
+        alg.verbose &&
+            @info @sprintf("iter %4d:   %.4e   %.12e  %.2e", iter, ϵ, λ, Δt)
+
+        ϵ <= alg.tol_galerkin && break
+        iter == alg.maxiter &&
+            @warn "VUMPS maximum iterations", iter, ϵ, λ
+    end
+
+    if length(ψ) > 1
+        ψ = InfiniteMPS(ψ.AL, ψ.CR[end]; tol=tol_gauge, maxiter=alg.orthmaxiter)
+        recalculate!(envs, ψ; tol=tol_envs)
+    end
+
+    λ = real(sum(expectation_value(ψ, H, envs)))
+    Δt = (Base.time_ns() - t₀) / 1.0e9
+    alg.verbose && @info @sprintf("vumps:   %.4e   %.12e    t=%.2e", ϵ, λ, Δt)
+    return ψ, envs, ϵ
 end
