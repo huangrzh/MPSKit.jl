@@ -172,7 +172,7 @@ function find_groundstate_seq(ψ::InfiniteMPS, H, alg::VUMPS, envs=environments(
             end
         end
 
-        λ = real(sum(expectation_value(ψ, H, envs)))
+        λ = real(sum(expectation_value(ψ, H, envs)))/length(ψ)
         alg.verbose &&
             @info @sprintf("iter %4d:   %.4e   %.12e  %.2e", iter, ϵ, λ, Δt)
 
@@ -186,7 +186,7 @@ function find_groundstate_seq(ψ::InfiniteMPS, H, alg::VUMPS, envs=environments(
         recalculate!(envs, ψ; tol=tol_envs)
     end
 
-    λ = real(sum(expectation_value(ψ, H, envs)))
+    λ = real(sum(expectation_value(ψ, H, envs)))/length(ψ)
     Δt = (Base.time_ns() - t₀) / 1.0e9
     alg.verbose && @info @sprintf("vumps:   %.4e   %.12e    t=%.2e", ϵ, λ, Δt)
     return ψ, envs, ϵ
